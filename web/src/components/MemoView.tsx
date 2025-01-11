@@ -7,6 +7,7 @@ import useAsyncEffect from "@/hooks/useAsyncEffect";
 import useCurrentUser from "@/hooks/useCurrentUser";
 import useNavigateTo from "@/hooks/useNavigateTo";
 import { useUserStore, useWorkspaceSettingStore, useMemoStore } from "@/store/v1";
+import { State } from "@/types/proto/api/v1/common";
 import { MemoRelation_Type } from "@/types/proto/api/v1/memo_relation_service";
 import { Memo, Visibility } from "@/types/proto/api/v1/memo_service";
 import { WorkspaceMemoRelatedSetting } from "@/types/proto/api/v1/workspace_setting_service";
@@ -28,12 +29,12 @@ import VisibilityIcon from "./VisibilityIcon";
 
 interface Props {
   memo: Memo;
-  displayTimeFormat?: "auto" | "time";
   compact?: boolean;
   showCreator?: boolean;
   showVisibility?: boolean;
   showPinned?: boolean;
   className?: string;
+  parentPage?: string;
 }
 
 const MemoView: React.FC<Props> = (props: Props) => {
@@ -57,8 +58,10 @@ const MemoView: React.FC<Props> = (props: Props) => {
     (relation) => relation.type === MemoRelation_Type.COMMENT && relation.relatedMemo?.name === memo.name,
   ).length;
   const relativeTimeFormat = Date.now() - memo.displayTime!.getTime() > 1000 * 60 * 60 * 24 ? "datetime" : "auto";
+  const isArchived = memo.state === State.ARCHIVED;
   const readonly = memo.creator !== user?.name && !isSuperUser(user);
   const isInMemoDetailPage = location.pathname.startsWith(`/m/${memo.uid}`);
+  const parentPage = props.parentPage || location.pathname;
 
   // Initial related data: creator.
   useAsyncEffect(async () => {
@@ -67,8 +70,12 @@ const MemoView: React.FC<Props> = (props: Props) => {
   }, []);
 
   const handleGotoMemoDetailPage = useCallback(() => {
-    navigateTo(`/m/${memo.uid}`);
-  }, [memo.uid]);
+    navigateTo(`/m/${memo.uid}`, {
+      state: {
+        from: parentPage,
+      },
+    });
+  }, [memo.uid, parentPage]);
 
   const handleMemoContentClick = useCallback(async (e: React.MouseEvent) => {
     const targetEl = e.target as HTMLElement;
@@ -108,12 +115,11 @@ const MemoView: React.FC<Props> = (props: Props) => {
     }
   };
 
-  const displayTime =
-    props.displayTimeFormat === "time" ? (
-      memo.displayTime?.toLocaleTimeString()
-    ) : (
-      <relative-time datetime={memo.displayTime?.toISOString()} format={relativeTimeFormat}></relative-time>
-    );
+  const displayTime = isArchived ? (
+    memo.displayTime?.toLocaleString()
+  ) : (
+    <relative-time datetime={memo.displayTime?.toISOString()} format={relativeTimeFormat}></relative-time>
+  );
 
   return (
     <div
@@ -139,14 +145,14 @@ const MemoView: React.FC<Props> = (props: Props) => {
             <div className="w-auto max-w-[calc(100%-8rem)] grow flex flex-row justify-start items-center">
               {props.showCreator && creator ? (
                 <div className="w-full flex flex-row justify-start items-center">
-                  <Link className="w-auto hover:opacity-80" to={`/u/${encodeURIComponent(creator.username)}`} unstable_viewTransition>
+                  <Link className="w-auto hover:opacity-80" to={`/u/${encodeURIComponent(creator.username)}`} viewTransition>
                     <UserAvatar className="mr-2 shrink-0" avatarUrl={creator.avatarUrl} />
                   </Link>
                   <div className="w-full flex flex-col justify-center items-start">
                     <Link
                       className="w-full block leading-tight hover:opacity-80 truncate text-gray-600 dark:text-gray-400"
                       to={`/u/${encodeURIComponent(creator.username)}`}
-                      unstable_viewTransition
+                      viewTransition
                     >
                       {creator.nickname || creator.username}
                     </Link>
@@ -176,7 +182,7 @@ const MemoView: React.FC<Props> = (props: Props) => {
                     </span>
                   </Tooltip>
                 )}
-                {currentUser && <ReactionSelector className="border-none w-auto h-auto" memo={memo} />}
+                {currentUser && !isArchived && <ReactionSelector className="border-none w-auto h-auto" memo={memo} />}
               </div>
               {!isInMemoDetailPage && (workspaceMemoRelatedSetting.enableComment || commentAmount > 0) && (
                 <Link
@@ -185,7 +191,10 @@ const MemoView: React.FC<Props> = (props: Props) => {
                     commentAmount === 0 && "invisible group-hover:visible",
                   )}
                   to={`/m/${memo.uid}#comments`}
-                  unstable_viewTransition
+                  viewTransition
+                  state={{
+                    from: parentPage,
+                  }}
                 >
                   <MessageCircleMoreIcon className="w-4 h-4 mx-auto text-gray-500 dark:text-gray-400" />
                   {commentAmount > 0 && <span className="text-xs text-gray-500 dark:text-gray-400">{commentAmount}</span>}
@@ -198,14 +207,7 @@ const MemoView: React.FC<Props> = (props: Props) => {
                   </span>
                 </Tooltip>
               )}
-              {!readonly && (
-                <MemoActionMenu
-                  className="-ml-1"
-                  memo={memo}
-                  hiddenActions={props.showPinned ? [] : ["pin"]}
-                  onEdit={() => setShowEditor(true)}
-                />
-              )}
+              <MemoActionMenu className="-ml-1" memo={memo} readonly={readonly} onEdit={() => setShowEditor(true)} />
             </div>
           </div>
           <MemoContent
@@ -216,10 +218,11 @@ const MemoView: React.FC<Props> = (props: Props) => {
             onClick={handleMemoContentClick}
             onDoubleClick={handleMemoContentDoubleClick}
             compact={props.compact && workspaceMemoRelatedSetting.enableAutoCompact}
+            parentPage={parentPage}
           />
           {memo.location && <MemoLocationView location={memo.location} />}
           <MemoResourceListView resources={memo.resources} />
-          <MemoRelationListView memo={memo} relations={referencedMemos} />
+          <MemoRelationListView memo={memo} relations={referencedMemos} parentPage={parentPage} />
           <MemoReactionistView memo={memo} reactions={memo.reactions} />
         </>
       )}
