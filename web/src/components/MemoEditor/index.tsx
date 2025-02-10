@@ -1,6 +1,8 @@
-import { Select, Option, Button, Divider } from "@mui/joy";
+import { Select, Option, Divider } from "@mui/joy";
+import { Button } from "@usememos/mui";
 import { isEqual } from "lodash-es";
-import { SendIcon } from "lucide-react";
+import { LoaderIcon, SendIcon } from "lucide-react";
+import { observer } from "mobx-react-lite";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
@@ -12,7 +14,8 @@ import { TAB_SPACE_WIDTH } from "@/helpers/consts";
 import { isValidUrl } from "@/helpers/utils";
 import useAsyncEffect from "@/hooks/useAsyncEffect";
 import useCurrentUser from "@/hooks/useCurrentUser";
-import { useMemoStore, useResourceStore, useUserStore, useWorkspaceSettingStore } from "@/store/v1";
+import { useMemoStore, useResourceStore, useWorkspaceSettingStore } from "@/store/v1";
+import { userStore } from "@/store/v2";
 import { MemoRelation, MemoRelation_Type } from "@/types/proto/api/v1/memo_relation_service";
 import { Location, Memo, Visibility } from "@/types/proto/api/v1/memo_service";
 import { Resource } from "@/types/proto/api/v1/resource_service";
@@ -56,12 +59,11 @@ interface State {
   isComposing: boolean;
 }
 
-const MemoEditor = (props: Props) => {
+const MemoEditor = observer((props: Props) => {
   const { className, cacheKey, memoName, parentMemoName, autoFocus, onConfirm, onCancel } = props;
   const t = useTranslate();
   const { i18n } = useTranslation();
   const workspaceSettingStore = useWorkspaceSettingStore();
-  const userStore = useUserStore();
   const memoStore = useMemoStore();
   const resourceStore = useResourceStore();
   const currentUser = useCurrentUser();
@@ -77,7 +79,7 @@ const MemoEditor = (props: Props) => {
   const [displayTime, setDisplayTime] = useState<Date | undefined>();
   const [hasContent, setHasContent] = useState<boolean>(false);
   const editorRef = useRef<EditorRefActions>(null);
-  const userSetting = userStore.userSetting as UserSetting;
+  const userSetting = userStore.state.userSetting as UserSetting;
   const contentCacheKey = `${currentUser.name}-${cacheKey || ""}`;
   const [contentCache, setContentCache] = useLocalStorage<string>(contentCacheKey, "");
   const referenceRelations = memoName
@@ -301,29 +303,46 @@ const MemoEditor = (props: Props) => {
       if (memoName) {
         const prevMemo = await memoStore.getOrFetchMemoByName(memoName);
         if (prevMemo) {
-          const updateMask = ["content", "visibility"];
+          const updateMask = new Set<string>();
           const memoPatch: Partial<Memo> = {
             name: prevMemo.name,
             content,
-            visibility: state.memoVisibility,
           };
-          if (!isEqual(displayTime, prevMemo.displayTime)) {
-            updateMask.push("display_time");
-            memoPatch.displayTime = displayTime;
+          if (!isEqual(content, prevMemo.content)) {
+            updateMask.add("content");
+            memoPatch.content = content;
+          }
+          if (!isEqual(state.memoVisibility, prevMemo.visibility)) {
+            updateMask.add("visibility");
+            memoPatch.visibility = state.memoVisibility;
           }
           if (!isEqual(state.resourceList, prevMemo.resources)) {
-            updateMask.push("resources");
+            updateMask.add("resources");
             memoPatch.resources = state.resourceList;
           }
           if (!isEqual(state.relationList, prevMemo.relations)) {
-            updateMask.push("relations");
+            updateMask.add("relations");
             memoPatch.relations = state.relationList;
           }
           if (!isEqual(state.location, prevMemo.location)) {
-            updateMask.push("location");
+            updateMask.add("location");
             memoPatch.location = state.location;
           }
-          const memo = await memoStore.updateMemo(memoPatch, updateMask);
+          if (["content", "resources", "relations", "location"].some((key) => updateMask.has(key))) {
+            updateMask.add("update_time");
+          }
+          if (!isEqual(displayTime, prevMemo.displayTime)) {
+            updateMask.add("display_time");
+            memoPatch.displayTime = displayTime;
+          }
+          if (updateMask.size === 0) {
+            toast.error("No changes detected");
+            if (onCancel) {
+              onCancel();
+            }
+            return;
+          }
+          const memo = await memoStore.updateMemo(memoPatch, Array.from(updateMask));
           if (onConfirm) {
             onConfirm(memo.name);
           }
@@ -332,11 +351,13 @@ const MemoEditor = (props: Props) => {
         // Create memo or memo comment.
         const request = !parentMemoName
           ? memoStore.createMemo({
-              content,
-              visibility: state.memoVisibility,
-              resources: state.resourceList,
-              relations: state.relationList,
-              location: state.location,
+              memo: Memo.fromPartial({
+                content,
+                visibility: state.memoVisibility,
+                resources: state.resourceList,
+                relations: state.relationList,
+                location: state.location,
+              }),
             })
           : memoServiceClient
               .createMemoComment({
@@ -434,6 +455,10 @@ const MemoEditor = (props: Props) => {
             selected={displayTime}
             onChange={(date) => date && setDisplayTime(date)}
             showTimeSelect
+            showMonthDropdown
+            showYearDropdown
+            yearDropdownItemNumber={5}
+            dateFormatCalendar=" "
             customInput={<span className="cursor-pointer text-sm text-gray-400 dark:text-gray-500">{displayTime.toLocaleString()}</span>}
             calendarClassName="ml-24 sm:ml-44"
           />
@@ -442,7 +467,7 @@ const MemoEditor = (props: Props) => {
         <ResourceListView resourceList={state.resourceList} setResourceList={handleSetResourceList} />
         <RelationListView relationList={referenceRelations} setRelationList={handleSetRelationList} />
         <div className="relative w-full flex flex-row justify-between items-center pt-2" onFocus={(e) => e.stopPropagation()}>
-          <div className="flex flex-row justify-start items-center opacity-80 dark:opacity-60">
+          <div className="flex flex-row justify-start items-center opacity-80 dark:opacity-60 -space-x-1">
             <TagSelector editorRef={editorRef} />
             <MarkdownMenu editorRef={editorRef} />
             <UploadResourceButton />
@@ -461,10 +486,12 @@ const MemoEditor = (props: Props) => {
           </div>
         </div>
         <Divider className="!mt-2 opacity-40" />
-        <div className="w-full flex flex-row justify-between items-center py-3 dark:border-t-zinc-500">
+        <div className="w-full flex flex-row justify-between items-center py-3 gap-2 overflow-auto dark:border-t-zinc-500">
           <div className="relative flex flex-row justify-start items-center" onFocus={(e) => e.stopPropagation()}>
             <Select
+              className="!text-sm"
               variant="plain"
+              size="md"
               value={state.memoVisibility}
               startDecorator={<VisibilityIcon visibility={state.memoVisibility} />}
               onChange={(_, visibility) => {
@@ -474,7 +501,7 @@ const MemoEditor = (props: Props) => {
               }}
             >
               {[Visibility.PRIVATE, Visibility.PROTECTED, Visibility.PUBLIC].map((item) => (
-                <Option key={item} value={item} className="whitespace-nowrap">
+                <Option key={item} value={item} className="whitespace-nowrap !text-sm">
                   {t(`memo.visibility.${convertVisibilityToString(item).toLowerCase()}` as any)}
                 </Option>
               ))}
@@ -482,24 +509,19 @@ const MemoEditor = (props: Props) => {
           </div>
           <div className="shrink-0 flex flex-row justify-end items-center gap-2">
             {props.onCancel && (
-              <Button className="!font-normal" color="neutral" variant="plain" loading={state.isRequesting} onClick={handleCancelBtnClick}>
+              <Button variant="plain" disabled={state.isRequesting} onClick={handleCancelBtnClick}>
                 {t("common.cancel")}
               </Button>
             )}
-            <Button
-              className="!font-normal"
-              disabled={!allowSave}
-              loading={state.isRequesting}
-              endDecorator={<SendIcon className="w-4 h-auto" />}
-              onClick={handleSaveBtnClick}
-            >
+            <Button color="primary" disabled={!allowSave || state.isRequesting} onClick={handleSaveBtnClick}>
               {t("editor.save")}
+              {!state.isRequesting ? <SendIcon className="w-4 h-auto ml-1" /> : <LoaderIcon className="w-4 h-auto ml-1 animate-spin" />}
             </Button>
           </div>
         </div>
       </div>
     </MemoEditorContext.Provider>
   );
-};
+});
 
 export default MemoEditor;

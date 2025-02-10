@@ -1,4 +1,6 @@
-import { Button, Divider } from "@mui/joy";
+import { Divider } from "@mui/joy";
+import { Button } from "@usememos/mui";
+import { observer } from "mobx-react-lite";
 import { useEffect, useState } from "react";
 import { toast } from "react-hot-toast";
 import { Link } from "react-router-dom";
@@ -8,18 +10,17 @@ import PasswordSignInForm from "@/components/PasswordSignInForm";
 import { identityProviderServiceClient } from "@/grpcweb";
 import { absolutifyLink } from "@/helpers/utils";
 import useCurrentUser from "@/hooks/useCurrentUser";
-import { useCommonContext } from "@/layouts/CommonContextProvider";
 import { Routes } from "@/router";
 import { extractIdentityProviderIdFromName, useWorkspaceSettingStore } from "@/store/v1";
+import { workspaceStore } from "@/store/v2";
 import { IdentityProvider, IdentityProvider_Type } from "@/types/proto/api/v1/idp_service";
 import { WorkspaceGeneralSetting } from "@/types/proto/api/v1/workspace_setting_service";
 import { WorkspaceSettingKey } from "@/types/proto/store/workspace_setting";
 import { useTranslate } from "@/utils/i18n";
 
-const SignIn = () => {
+const SignIn = observer(() => {
   const t = useTranslate();
   const currentUser = useCurrentUser();
-  const commonContext = useCommonContext();
   const workspaceSettingStore = useWorkspaceSettingStore();
   const [identityProviderList, setIdentityProviderList] = useState<IdentityProvider[]>([]);
   const workspaceGeneralSetting =
@@ -42,11 +43,11 @@ const SignIn = () => {
   }, []);
 
   const handleLocaleSelectChange = (locale: Locale) => {
-    commonContext.setLocale(locale);
+    workspaceStore.state.setPartial({ locale });
   };
 
   const handleAppearanceSelectChange = (appearance: Appearance) => {
-    commonContext.setAppearance(appearance);
+    workspaceStore.state.setPartial({ appearance });
   };
 
   const handleSignInWithIdentityProvider = async (identityProvider: IdentityProvider) => {
@@ -84,7 +85,7 @@ const SignIn = () => {
         {!workspaceGeneralSetting.disallowUserRegistration && !workspaceGeneralSetting.disallowPasswordAuth && (
           <p className="w-full mt-4 text-sm">
             <span className="dark:text-gray-500">{t("auth.sign-up-tip")}</span>
-            <Link to="/auth/signup" className="cursor-pointer ml-2 text-blue-600 hover:underline" unstable_viewTransition>
+            <Link to="/auth/signup" className="cursor-pointer ml-2 text-blue-600 hover:underline" viewTransition>
               {t("common.sign-up")}
             </Link>
           </p>
@@ -95,11 +96,10 @@ const SignIn = () => {
             <div className="w-full flex flex-col space-y-2">
               {identityProviderList.map((identityProvider) => (
                 <Button
+                  className="bg-white dark:bg-black"
                   key={identityProvider.name}
                   variant="outlined"
-                  color="neutral"
-                  className="w-full"
-                  size="md"
+                  fullWidth
                   onClick={() => handleSignInWithIdentityProvider(identityProvider)}
                 >
                   {t("common.sign-in-with", { provider: identityProvider.title })}
@@ -110,11 +110,11 @@ const SignIn = () => {
         )}
       </div>
       <div className="mt-4 flex flex-row items-center justify-center w-full gap-2">
-        <LocaleSelect value={commonContext.locale} onChange={handleLocaleSelectChange} />
-        <AppearanceSelect value={commonContext.appearance as Appearance} onChange={handleAppearanceSelectChange} />
+        <LocaleSelect value={workspaceStore.state.locale} onChange={handleLocaleSelectChange} />
+        <AppearanceSelect value={workspaceStore.state.appearance as Appearance} onChange={handleAppearanceSelectChange} />
       </div>
     </div>
   );
-};
+});
 
 export default SignIn;

@@ -1,18 +1,19 @@
-import { Button, Checkbox, Input } from "@mui/joy";
+import { Button, Checkbox, Input } from "@usememos/mui";
+import { LoaderIcon } from "lucide-react";
+import { observer } from "mobx-react-lite";
 import { ClientError } from "nice-grpc-web";
 import { useEffect, useState } from "react";
 import { toast } from "react-hot-toast";
 import { authServiceClient } from "@/grpcweb";
 import useLoading from "@/hooks/useLoading";
 import useNavigateTo from "@/hooks/useNavigateTo";
-import { useCommonContext } from "@/layouts/CommonContextProvider";
 import { useUserStore } from "@/store/v1";
+import { workspaceStore } from "@/store/v2";
 import { useTranslate } from "@/utils/i18n";
 
-const PasswordSignInForm = () => {
+const PasswordSignInForm = observer(() => {
   const t = useTranslate();
   const navigateTo = useNavigateTo();
-  const commonContext = useCommonContext();
   const userStore = useUserStore();
   const actionBtnLoadingState = useLoading(false);
   const [username, setUsername] = useState("");
@@ -20,11 +21,11 @@ const PasswordSignInForm = () => {
   const [remember, setRemember] = useState(true);
 
   useEffect(() => {
-    if (commonContext.profile.mode === "demo") {
+    if (workspaceStore.state.profile.mode === "demo") {
       setUsername("yourselfhosted");
       setPassword("yourselfhosted");
     }
-  }, [commonContext.profile.mode]);
+  }, [workspaceStore.state.profile.mode]);
 
   const handleUsernameInputChanged = (e: React.ChangeEvent<HTMLInputElement>) => {
     const text = e.target.value as string;
@@ -68,7 +69,7 @@ const PasswordSignInForm = () => {
         <div className="w-full flex flex-col justify-start items-start">
           <span className="leading-8 text-gray-600">{t("common.username")}</span>
           <Input
-            className="w-full"
+            className="w-full bg-white dark:bg-black"
             size="lg"
             type="text"
             readOnly={actionBtnLoadingState.isLoading}
@@ -84,7 +85,7 @@ const PasswordSignInForm = () => {
         <div className="w-full flex flex-col justify-start items-start">
           <span className="leading-8 text-gray-600">{t("common.password")}</span>
           <Input
-            className="w-full"
+            className="w-full bg-white dark:bg-black"
             size="lg"
             type="password"
             readOnly={actionBtnLoadingState.isLoading}
@@ -99,27 +100,23 @@ const PasswordSignInForm = () => {
         </div>
       </div>
       <div className="flex flex-row justify-start items-center w-full mt-6">
-        <Checkbox
-          className="dark:!text-gray-400"
-          label={t("common.remember-me")}
-          checked={remember}
-          onChange={(e) => setRemember(e.target.checked)}
-        />
+        <Checkbox label={t("common.remember-me")} checked={remember} onChange={(e) => setRemember(e.target.checked)} />
       </div>
       <div className="flex flex-row justify-end items-center w-full mt-6">
         <Button
-          className="w-full"
-          size="md"
           type="submit"
+          color="primary"
+          size="lg"
+          fullWidth
           disabled={actionBtnLoadingState.isLoading}
-          loading={actionBtnLoadingState.isLoading}
           onClick={handleSignInButtonClick}
         >
           {t("common.sign-in")}
+          {actionBtnLoadingState.isLoading && <LoaderIcon className="w-5 h-auto ml-2 animate-spin opacity-60" />}
         </Button>
       </div>
     </form>
   );
-};
+});
 
 export default PasswordSignInForm;
